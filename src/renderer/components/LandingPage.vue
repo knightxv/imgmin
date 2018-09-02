@@ -36,10 +36,12 @@
         this.distFile = selectFile;
       },
       async begin() {
-        if (this.selectFile) {
+        if (this.selectFile && this.distFile) {
+          const imgPath = this.selectFile.replace(/\\/g, '/');
+          const distPath = this.distFile.replace(/\\/g, '/');
           const config = {
-            imgPath: this.selectFile, // 要处理的文件路径
-	          distPath: this.distFile, // 处理完之后文件要放哪
+            imgPath, // 要处理的文件路径
+	          distPath, // 处理完之后文件要放哪
           };
           const app = new App(config);
           app.ontip((text) => {

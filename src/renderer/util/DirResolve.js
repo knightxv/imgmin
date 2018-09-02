@@ -1,41 +1,67 @@
 const path = require('path');
-const fs = require('mz/fs')
+const fs = require('fs');
 
-// (async () => {
-// 	// await fs.exists(imgPath);
-// 	const imgDirPath = 'D:/project/puppeteer/imagemin/src/test';
-// 	const dirRes = new DirResolve(/(\.png$)|(\.jpeg$)|(\.jpg$)/);
-// 	const fileList = await dirRes.resolve(imgDirPath);
-// 	console.log(fileList);
-// })()
-
-module.exports = class DirResolve {
+const stat = (dirname) => {
+	return new Promise((resolve, reject) => {
+		fs.stat(dirname, (err, stats) => {
+			if (err) {
+				reject();
+				return;
+			}
+			resolve(stats);
+		});
+	});
+};
+const readdir = (dirname) => {
+	return new Promise((resolve, reject) => {
+		fs.readdir(dirname, (err, stats) => {
+			if (err) {
+				reject();
+				return;
+			}
+			resolve(stats);
+		});
+	});
+};
+export default class DirResolve {
 	constructor(filterReg) {
 		this.reg = filterReg;
 		this.filterImg = [];
 	}
 	// 解析文件
 	async analysisFile(parentDirName) {
+		parentDirName = parentDirName.replace(/\//g, '\\\\');
 		const isDir = await this.isDir(parentDirName);
 		const self = this;
-		if (isDir) {
-			// 如果是否文件夹的话就迭代
-			const fileList = await fs.readdir(parentDirName);
-			const promiseArr = fileList.map(async fileName => {
-				const isRegTest = self.reg.test(fileName); // 是否是想要的名字
-				const filePatn = path.join(parentDirName, fileName);
-				if (isRegTest) {
-					self.filterImg.push(filePatn);
-				} else {
-					const isDir = await self.isDir(filePatn);
-					await self.analysisFile(filePatn);
-				}
-			})
-			await Promise.all(promiseArr);
+		if (!isDir) {
+			return;
 		}
+		// 如果是否文件夹的话就迭代
+		console.log('read dir');
+		const fileList = await readdir(parentDirName);
+		console.log('readdir', parentDirName, fileList);
+		const promiseArr = fileList.map(async fileName => {
+			const isRegTest = self.reg.test(fileName); // 是否是想要的名字
+			const filePatn = path.join(parentDirName, fileName);
+			if (isRegTest) {
+				self.filterImg.push(filePatn);
+			} else {
+				const isDir = await self.isDir(filePatn);
+				if (!isDir) {
+					return;
+				}
+				await self.analysisFile(filePatn);
+			}
+		})
+		await Promise.all(promiseArr);
+		console.log('analysisFile end');
 	}
 	async isDir(dirName) {
-		const dirInfo = await fs.stat(dirName);
+		if (dirName.indexOf('.') != -1) {
+			return false;
+		}
+		const dirInfo = await stat(dirName);
+		console.log('isDir:', dirName, dirInfo);
 		return dirInfo.isDirectory();
 	}
 	async resolve(dirName) {
@@ -54,21 +80,3 @@ module.exports = class DirResolve {
 	}
 }
 
-
-
-
-
-// fs.stat(imgPath, (err, pathInfo) => {
-// 	console.log(err);
-// 	if (err) {
-// 		console.log(err);
-// 		return;
-// 	}
-// 	const isDirectory = pathInfo.isDirectory();
-// 	if (!isDirectory) {
-// 		console.log('请选择正常的文件夹');
-// 		return;
-// 	}
-// 	fs.readdir
-// 	console.log(pathInfo);
-// });
