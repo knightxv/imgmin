@@ -22,7 +22,7 @@ const delay = time => {
 const DefaultConfig = {
 	isWatchBrowser: false, // 是否查看进度（调试模式）
 	pageDownMax: 20, // 每个页面最多上传几张图片
-	pageMax: 2, // 最多打开多少个页面
+	pageMax: 3, // 最多打开多少个页面
 	httpPath: 'https://tinypng.com',
 	imgReg: /(\.png$)|(\.jpeg$)|(\.jpg$)/,
 };
@@ -88,6 +88,7 @@ class App {
 	}
 	async startResolve() {
 		this.tip(`要处理的文件有${this.imgList.length}个`);
+		this.tip('开始初始化处理');
 		const progressArr = this.canUseUploadPage.map(async (uploadPage, i) => {
 			return this.goOnToReoslve(uploadPage);
 		});
@@ -115,21 +116,32 @@ class App {
 		const imgPath = this.imgPath;
 		const distPath = this.distPath;
 		// 把resolveArr里的文件一起上传过去
-		console.log('uploadFiles', resolveArr);
-		const uploadFiles = await this.uploadFiles(canUploadPage, resolveArr);
-		const filePromiseArr = uploadFiles.map(async (successImgLink, index) => {
-			const filePath = resolveArr[index];
-			if (!successImgLink) {
+		const promiseResolveArr = [];
+		for(let i = 0; i < resolveArr.length; i++) {
+			const filePath = resolveArr[i];
+			await canUploadPage.waitFor(800 * i); // 防止被认出来==。
+			console.log('ready uploadFile:', filePath);
+			const uploadPromise = this.uploadFile(canUploadPage, filePath, i).then(async successImgLink => {
+				if (!successImgLink) {
+					throw "upload fail";
+				}
+				console.log('uploadFile success:', filePath);
+				const disWidthPath = path.relative(imgPath, filePath);
+				const distFileName = path.join(distPath, disWidthPath);
+				console.log('ready download:', filePath,'to:', distFileName);
+				const isSuccess = await self.download(canDownPage, successImgLink, distFileName);
+				if (!isSuccess) {
+					throw "upload fail";
+				}
+				console.log(`download:${isSuccess}`, filePath,'to:', distFileName);
+			}).catch(err => {
+				console.log('uploadFile fail filePath:', filePath);
 				this.imgList.push(filePath);
-				return;
-			}
-			const disWidthPath = path.relative(imgPath, filePath);
-			const distFileName = path.join(distPath, disWidthPath);
-			console.log('ready download:', filePath,'to:', distFileName);
-			const isSuccess = await self.download(canDownPage, successImgLink, distFileName);
-			console.log(`download:${isSuccess}`, filePath,'to:', distFileName);
-		});
-		return Promise.all(filePromiseArr);
+			});
+			promiseResolveArr.push(uploadPromise);
+		}
+		await Promise.all(promiseResolveArr);
+		return true;
 	}
 	async openDownPage() {
 		const downPage = await this.openPage(true);
@@ -182,6 +194,7 @@ class App {
 			});
 		}
 		await page.goto(this.config.httpPath, {
+			waitUntil: 'networkidle2',
 			timeout: 0,
 		});
 		return page;
@@ -213,30 +226,15 @@ class App {
 		this.tip('解析文件目录完毕');
 	}
 	// 上次文件
-	async uploadFiles(page, uploadFilePaths) {
-		await page.waitFor(800);
+	async uploadFile(page, uploadFilePath, index) {
 		const fileInput = await page.$('input[type=file]');
-		await fileInput.uploadFile(...uploadFilePaths);
-		await page.waitFor(
-			(uploadFilePaths) => document.querySelectorAll('.files li .error').length + document.querySelectorAll('.files li .success').length >= uploadFilePaths.length,
-			{
-				timeout: 0,
-			},
-			uploadFilePaths
-		);
-		console.log('when all download');
-		await page.waitFor(500);
-		const uploadFilesPromise = uploadFilePaths.map(async (filePath, index) => {
-			const downLink = await page.$eval(`.files li:nth-child(${index + 1})`, ev => {
-				const domHref = ev.querySelector('a');
-				if (!domHref) {
-					return null;
-				}
-				return domHref.href;
-			});
+		await fileInput.uploadFile(uploadFilePath);
+		const successPromise = page.mainFrame().waitForSelector(`.files li:nth-child(${index + 1}) .success`);
+		const failPromise = page.mainFrame().waitForSelector(`.files li:nth-child(${index + 1}) .error`);
+		return Promise.race([successPromise, failPromise]).then(async () => {
+			const downLink = await page.$eval(`.files li:nth-child(${index + 1}) .after a`, ev => ev.href);
 			return downLink;
 		});
-		return Promise.all(uploadFilesPromise);
 	}
 	// 设置下载函数（挂载到window.fileDown上(bufferString, downPath))
 	async setDownloadFunc(page) {
