@@ -37,9 +37,9 @@ export default class DirResolve {
 			return;
 		}
 		// 如果是否文件夹的话就迭代
-		console.log('read dir');
+		// console.log('read dir');
 		const fileList = await readdir(parentDirName);
-		console.log('readdir', parentDirName, fileList);
+		// console.log('readdir', parentDirName, fileList);
 		const promiseArr = fileList.map(async fileName => {
 			const isRegTest = self.reg.test(fileName); // 是否是想要的名字
 			const filePatn = path.join(parentDirName, fileName);
@@ -54,14 +54,14 @@ export default class DirResolve {
 			}
 		})
 		await Promise.all(promiseArr);
-		console.log('analysisFile end');
+		// console.log('analysisFile end');
 	}
 	async isDir(dirName) {
 		if (dirName.indexOf('.') != -1) {
 			return false;
 		}
 		const dirInfo = await stat(dirName);
-		console.log('isDir:', dirName, dirInfo);
+		// console.log('isDir:', dirName, dirInfo);
 		return dirInfo.isDirectory();
 	}
 	async resolve(dirName) {

@@ -22,30 +22,18 @@ const delay = time => {
 const DefaultConfig = {
 	isWatchBrowser: false, // 是否查看进度（调试模式）
 	pageDownMax: 20, // 每个页面最多上传几张图片
-	pageMax: 3, // 最多打开多少个页面
+	pageMax: 1, // 最多打开多少个页面
 	httpPath: 'https://tinypng.com',
 	imgReg: /(\.png$)|(\.jpeg$)|(\.jpg$)/,
 };
-
 
 class App {
 	constructor(userConfig) {
 		const config = Object.assign({}, DefaultConfig, userConfig);
 		this.imgPath = config.imgPath; // 所要操作的文件夹路径
 		this.distPath = config.distPath;
-		this.browser = null; // 浏览器对象
+		// this.browser = null; // 浏览器对象
 		this.config = config;
-		this.imgList = []; // 总共要处理的文件路径
-		this.resolveArr = []; // 正打算处理的文件(路径)
-		this.canUseUploadPage = []; // 可以用下载pages
-		this.downPage = null; // 提供下载页面(暂定只有一个)
-		this.tipCb = null; // tip回调
-		this.browserConfig = { // 浏览器的操作
-			headless: !config.isWatchBrowser, // 是否隐藏操作过程
-			timeout: 0,
-			devtools: true, // 是否打开调试
-			executablePath: 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-	  	};
 		this._init();
 	}
 	tip(text) {
@@ -67,24 +55,42 @@ class App {
 		return true;
 	}
 	async _init() {
+		this.imgList = []; // 总共要处理的文件路径
+		this.resolveArr = []; // 正打算处理的文件(路径)
+		this.canUseUploadPage = []; // 可以用下载pages
+		this.downPage = null; // 提供下载页面(暂定只有一个)
+		this.browserConfig = { // 浏览器的操作
+			headless: false, // 是否隐藏操作过程
+			timeout: 0,
+			devtools: true, // 是否打开调试
+			ignoreHTTPSErrors: true,
+			executablePath: 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+		};
 		const isCanResolve = this.isCanResolve();
 		if (!isCanResolve) {
 			this.tip('配置有问题');
 			return;
 		}
-		console.log('puppeteer');
-		console.log('launch');
+		console.log('analysisImgPath');
+		await this.analysisImgPath(); // 解析所有要处理的文件
+		if (this.imgList.length <= 0) {
+			return;
+		}
 		this.browser = await puppeteer.launch(this.browserConfig);
 		console.log('openDownPage');
 		await this.openDownPage();
-		console.log('analysisImgPath');
-		await this.analysisImgPath(); // 解析所有要处理的文件
 		console.log('openUploadPage');
 		await this.openUploadPage(); // 根据文件的多少和配置决定打开页面的页数
 		console.log('startResolve');
-		await this.startResolve();
-		await this.browser.close();
+		try {
+			await this.startResolve();
+		} catch (err) {
+
+		}
+		console.log('close browser');
+		this.browser.close();
 		this.tip('处理完毕');
+		this._init();
 	}
 	async startResolve() {
 		this.tip(`要处理的文件有${this.imgList.length}个`);
@@ -101,8 +107,12 @@ class App {
 			return;
 		}
 		await this.uploadAndDown(resolveArr, uploadPage);
+		if (this.imgList.length === 0) {
+			return;
+		}
 		await uploadPage.reload({
 			timeout: 0,
+			waitUntil: 'domcontentloaded',
 		});
 		await this.goOnToReoslve(uploadPage);
 	}
@@ -111,40 +121,26 @@ class App {
 		if (!canUploadPage) {
 			return true;
 		}
-		const self = this;
 		const canDownPage = this.downPage;
 		const imgPath = this.imgPath;
 		const distPath = this.distPath;
 		// 把resolveArr里的文件一起上传过去
-		const promiseResolveArr = [];
-		for(let i = 0; i < resolveArr.length; i++) {
-			const filePath = resolveArr[i];
-			await canUploadPage.waitFor(800 * i); // 防止被认出来==。
-			console.log('ready uploadFile:', filePath);
-			const uploadPromise = this.uploadFile(canUploadPage, filePath, i).then(async successImgLink => {
-				if (!successImgLink) {
-					throw "upload fail";
-				}
-				console.log('uploadFile success:', filePath);
-				const disWidthPath = path.relative(imgPath, filePath);
-				const distFileName = path.join(distPath, disWidthPath);
-				console.log('ready download:', filePath,'to:', distFileName);
-				const isSuccess = await self.download(canDownPage, successImgLink, distFileName);
-				if (!isSuccess) {
-					throw "upload fail";
-				}
-				console.log(`download:${isSuccess}`, filePath,'to:', distFileName);
-			}).catch(err => {
-				console.log('uploadFile fail filePath:', filePath);
-				this.imgList.push(filePath);
-			});
-			promiseResolveArr.push(uploadPromise);
-		}
-		await Promise.all(promiseResolveArr);
-		return true;
+		const successImgLinks = await this.uploadFiles(canUploadPage, resolveArr);
+		console.log('successImgLinks', successImgLinks);
+		const promiseResolveArr = successImgLinks.map(async (successImgLink, index) => {
+			if (successImgLink == null) {
+				return;
+			}
+			const filePath = resolveArr[index];
+			const disWidthPath = path.relative(imgPath, filePath);
+			const distFileName = path.join(distPath, disWidthPath);
+			console.log('ready download:', filePath,'to:', distFileName);
+			await this.download(canDownPage, successImgLink, distFileName);
+		});
+		return Promise.all(promiseResolveArr);
 	}
 	async openDownPage() {
-		const downPage = await this.openPage(true);
+		const downPage = await this.openPage(this.browser);
 		this.downPage = downPage;
 		console.log('open down page success');
 		await this.setDownloadFunc(downPage);
@@ -172,7 +168,7 @@ class App {
 		const openPageLength = readyToOpenPage > this.config.pageMax ? this.config.pageMax : readyToOpenPage;
 		const openLoadPageProArr = [];
 		for (let i = 0; i < openPageLength; i++) {
-			openLoadPageProArr.push(this.openPage(true).then(uploadPage => {
+			openLoadPageProArr.push(this.openPage(this.browser).then(uploadPage => {
 				console.log('open success');
 				this.canUseUploadPage.push(uploadPage);
 				return uploadPage;
@@ -181,33 +177,23 @@ class App {
 		await Promise.all(openLoadPageProArr);
 	}
 	// 根据文件数打开page(最多5个)
-	async openPage(isInterceptedImg = false, goToPath = '') { // 是否屏蔽图片
+	async openPage(browser, isInterceptedImg = true) { // 是否屏蔽图片
 		// 拦截图片使页面加载更快
-		const page = await this.browser.newPage();
+		const page = await browser.newPage();
 		if (isInterceptedImg) {
 			await page.setRequestInterception(true);
 			page.on('request', interceptedRequest => {
-			if (interceptedRequest.url.endsWith('.png') || interceptedRequest.url.endsWith('.jpg'))
-				interceptedRequest.abort();
-			else
+				if (interceptedRequest.url.endsWith('.png') || interceptedRequest.url.endsWith('.jpg')) {
+					interceptedRequest.abort();
+					return;
+				}
 				interceptedRequest.continue();
 			});
 		}
 		await page.goto(this.config.httpPath, {
-			waitUntil: 'networkidle2',
 			timeout: 0,
 		});
 		return page;
-	}
-	// 设置页面不下载图片（使网页打开更快一点）
-	async setNoDownImg(page) {
-		await page.setRequestInterception(true);
-		page.on('request', interceptedRequest => {
-			if (interceptedRequest.url.endsWith('.png') || interceptedRequest.url.endsWith('.jpg'))
-			interceptedRequest.abort();
-			else
-			interceptedRequest.continue();
-		});
 	}
 	// 解析文件夹里面有多少个图片文件
 	async analysisImgPath () {
@@ -226,14 +212,41 @@ class App {
 		this.tip('解析文件目录完毕');
 	}
 	// 上次文件
-	async uploadFile(page, uploadFilePath, index) {
+	async uploadFiles(page, uploadFilePaths) {
+		await page.waitFor(1000);
 		const fileInput = await page.$('input[type=file]');
-		await fileInput.uploadFile(uploadFilePath);
-		const successPromise = page.mainFrame().waitForSelector(`.files li:nth-child(${index + 1}) .success`);
-		const failPromise = page.mainFrame().waitForSelector(`.files li:nth-child(${index + 1}) .error`);
-		return Promise.race([successPromise, failPromise]).then(async () => {
-			const downLink = await page.$eval(`.files li:nth-child(${index + 1}) .after a`, ev => ev.href);
-			return downLink;
+		let downIndex = 0;
+		while(downIndex < uploadFilePaths.length) {
+			await delay(800);
+			console.log('uploadFilePath', uploadFilePaths[downIndex]);
+			await fileInput.uploadFile(uploadFilePaths[downIndex]);
+			let isWaitFail = true;
+			while(isWaitFail) {
+				try {
+					await page.waitForFunction(
+						(uploadFilePaths) => document.querySelectorAll('.files li .error').length + document.querySelectorAll('.files li .success').length >= uploadFilePaths,
+						{
+							timeout: 0,
+						},
+						downIndex + 1
+					);
+					isWaitFail = false;
+					downIndex ++;
+				} catch (err) {
+					console.log('happen error', err);
+				}
+			}
+		}
+		console.log('when all upload'); 
+		await page.waitFor(500);
+		return await page.$$eval(`.files li.upload`, (lis) => {
+			return lis.map(li => {
+				const aLink = li.querySelector('a');
+				if (!aLink) {
+					return null;
+				}
+				return aLink.href;
+			});
 		});
 	}
 	// 设置下载函数（挂载到window.fileDown上(bufferString, downPath))

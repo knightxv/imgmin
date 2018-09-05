@@ -53,6 +53,7 @@
   },
   "dependencies": {
     "axios": "^0.16.1",
+    "electron": "^2.0.8",
     "mz": "^2.7.0",
     "puppeteer": "^0.13.0",
     "vue": "^2.3.3",
