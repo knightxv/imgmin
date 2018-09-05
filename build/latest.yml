@@ -1,0 +1,8 @@
+version: 0.0.0
+files:
+  - url: imgmin-setup-0.0.0.exe
+    sha512: QoUkPjG57IubVXCG1xc90tUGn/kkIBwHZsdhAB9uFNtoaQQfrJw4HXXHT0ZlrlZ8bFJiYsP57/MARgKb8I7D+A==
+path: imgmin-setup-0.0.0.exe
+sha512: QoUkPjG57IubVXCG1xc90tUGn/kkIBwHZsdhAB9uFNtoaQQfrJw4HXXHT0ZlrlZ8bFJiYsP57/MARgKb8I7D+A==
+sha2: 400fc026ee89174a5b59125815355848e0bfb2c20b38758b1db19a0313c57099
+releaseDate: '2018-09-03T03:51:06.361Z'
